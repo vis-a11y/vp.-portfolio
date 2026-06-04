@@ -361,15 +361,15 @@ function showToast(message, type = "success") {
 function injectHeaderAndFooter() {
     const header = document.getElementById("header");
     if (header) {
-        const activePage = window.location.pathname.split("/").pop() || "dashboard.html";
+        const activePage = window.location.pathname.split("/").pop() || "index.html";
         
         header.innerHTML = `
-            <a href="dashboard.html" class="logo">VP.</a>
+            <a href="index.html" class="logo">VP.</a>
             <button class="mobile-nav-toggle" id="mobile-toggle" aria-label="Toggle Menu">
                 <i class="fas fa-bars"></i>
             </button>
             <ul id="navbar">
-                <li><a href="dashboard.html" class="${activePage === 'dashboard.html' ? 'active' : ''}">Home</a></li>
+                <li><a href="index.html" class="${activePage === 'index.html' || activePage === 'dashboard.html' || activePage === '' ? 'active' : ''}">Home</a></li>
                 <li><a href="about.html" class="${activePage === 'about.html' ? 'active' : ''}">About</a></li>
                 <li><a href="services.html" class="${activePage === 'services.html' ? 'active' : ''}">Services</a></li>
                 <li><a href="skills.html" class="${activePage === 'skills.html' ? 'active' : ''}">Skills</a></li>
@@ -407,9 +407,9 @@ function injectHeaderAndFooter() {
         footer.className = "main-footer";
         footer.innerHTML = `
             <div class="footer-content">
-                <a href="dashboard.html" class="logo" style="font-size:2rem; margin-bottom: 5px;">VP.</a>
+                <a href="index.html" class="logo" style="font-size:2rem; margin-bottom: 5px;">VP.</a>
                 <div class="footer-links">
-                    <a href="dashboard.html">Home</a>
+                    <a href="index.html">Home</a>
                     <a href="about.html">About</a>
                     <a href="services.html">Services</a>
                     <a href="skills.html">Skills</a>
@@ -479,7 +479,7 @@ function handleLogout(e) {
     localStorage.setItem("portfolio_isAdmin", "false");
     showToast("Successfully signed out of admin session.", "info");
     setTimeout(() => {
-        window.location.href = "dashboard.html";
+        window.location.href = "index.html";
     }, 1000);
 }
 
