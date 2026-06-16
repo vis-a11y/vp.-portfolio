@@ -1,6 +1,3 @@
-/* ==========================================================================
-   GLOBAL CORE JS - PORTFOLIO STATE, INTERACTION & LAYOUT SHELL
-   ========================================================================== */
 
 // --- DEFAULT STATE INITS ---
 const DEFAULT_SERVICES = [
@@ -122,6 +119,65 @@ if (localStorage.getItem("portfolio_isAdmin") === null) {
 // Global System Variables
 let db = null;
 let usingFirebase = false;
+let usingAPI = false;
+
+// Helper to retrieve backend JWT headers
+function getAuthHeaders() {
+    const token = localStorage.getItem("portfolio_token");
+    return token ? {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+    } : {
+        "Content-Type": "application/json"
+    };
+}
+
+// --- BOOTSTRAP SYSTEM STATE ---
+async function bootstrapSystem() {
+    try {
+        const response = await fetch("/api/auth/status", {
+            headers: getAuthHeaders()
+        });
+        if (response.ok) {
+            console.log("🚀 Server API active. Operating in REST API Mode.");
+            usingAPI = true;
+            const status = await response.json();
+            if (!status.isAdmin && localStorage.getItem("portfolio_isAdmin") === "true") {
+                localStorage.setItem("portfolio_isAdmin", "false");
+                localStorage.removeItem("portfolio_token");
+            }
+        }
+    } catch (e) {
+        console.log("ℹ️ REST API unreachable, reverting to Firebase/LocalStorage bootstrap.");
+    }
+
+    if (!usingAPI) {
+        try {
+            await loadScript("firebase-config.js");
+            
+            if (isFirebaseConfigured()) {
+                console.log("🔥 Configured Firebase credentials detected! Bootstrapping Firebase SDKs...");
+                
+                await loadScript("https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js");
+                await loadScript("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js");
+                
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                usingFirebase = true;
+                
+                console.log("🚀 Firestore connection active. Synchronizing default structures...");
+                await initializeFirestoreDefaults();
+            } else {
+                console.log("ℹ️ No remote Firebase credentials detected. Operating in LocalStorage Fallback.");
+            }
+        } catch (e) {
+            console.error("⚠️ Firebase initialization failure, reverting to LocalStorage mode.", e);
+            usingFirebase = false;
+        }
+    }
+
+    initializeUIElements();
+}
 
 // --- DYNAMIC SCRIPTS LOADER ---
 async function loadScript(src) {
@@ -132,34 +188,6 @@ async function loadScript(src) {
         script.onerror = () => reject(new Error(`Failed to load ${src}`));
         document.head.appendChild(script);
     });
-}
-
-// --- BOOTSTRAP SYSTEM STATE ---
-async function bootstrapSystem() {
-    try {
-        await loadScript("firebase-config.js");
-        
-        if (isFirebaseConfigured()) {
-            console.log("🔥 Configured Firebase credentials detected! Bootstrapping Firebase SDKs...");
-            
-            await loadScript("https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js");
-            await loadScript("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js");
-            
-            firebase.initializeApp(firebaseConfig);
-            db = firebase.firestore();
-            usingFirebase = true;
-            
-            console.log("🚀 Firestore connection active. Synchronizing default structures...");
-            await initializeFirestoreDefaults();
-        } else {
-            console.log("ℹ️ No remote Firebase credentials detected. Operating in LocalStorage Fallback.");
-        }
-    } catch (e) {
-        console.error("⚠️ Firebase initialization failure, reverting to LocalStorage mode.", e);
-        usingFirebase = false;
-    } finally {
-        initializeUIElements();
-    }
 }
 
 // Populate Firestore with default portfolios if clean
@@ -237,7 +265,15 @@ function initializeUIElements() {
 // --- REAL-TIME PORT STATE SYNCHRONIZATION ---
 function setupPageSynchronizations(pageName) {
     if (pageName === "services.html") {
-        if (usingFirebase) {
+        if (usingAPI) {
+            fetch("/api/services")
+                .then(res => res.json())
+                .then(data => renderServicesDOM(data))
+                .catch(err => {
+                    console.error("Services REST error, loading LocalStorage.", err);
+                    renderServicesDOM(getServicesLocal());
+                });
+        } else if (usingFirebase) {
             db.collection("services").orderBy("order", "asc").onSnapshot(snapshot => {
                 const services = [];
                 snapshot.forEach(doc => {
@@ -252,7 +288,15 @@ function setupPageSynchronizations(pageName) {
             renderServicesDOM(getServicesLocal());
         }
     } else if (pageName === "skills.html") {
-        if (usingFirebase) {
+        if (usingAPI) {
+            fetch("/api/skills")
+                .then(res => res.json())
+                .then(data => renderSkillsDOM(data))
+                .catch(err => {
+                    console.error("Skills REST error, loading LocalStorage.", err);
+                    renderSkillsDOM(getSkillsLocal());
+                });
+        } else if (usingFirebase) {
             db.collection("skills").orderBy("order", "asc").onSnapshot(snapshot => {
                 const skills = [];
                 snapshot.forEach(doc => {
@@ -267,7 +311,15 @@ function setupPageSynchronizations(pageName) {
             renderSkillsDOM(getSkillsLocal());
         }
     } else if (pageName === "projects.html") {
-        if (usingFirebase) {
+        if (usingAPI) {
+            fetch("/api/projects")
+                .then(res => res.json())
+                .then(data => renderProjectsDOM(data))
+                .catch(err => {
+                    console.error("Projects REST error, loading LocalStorage.", err);
+                    renderProjectsDOM(getProjectsLocal());
+                });
+        } else if (usingFirebase) {
             db.collection("projects").orderBy("createdAt", "desc").onSnapshot(snapshot => {
                 const projects = [];
                 snapshot.forEach(doc => {
@@ -291,7 +343,20 @@ function setupPageSynchronizations(pageName) {
             if (editBtn) editBtn.style.display = "inline-flex";
 
             // Load admin inbox
-            if (usingFirebase) {
+            if (usingAPI) {
+                fetch("/api/messages", {
+                    headers: getAuthHeaders()
+                })
+                    .then(res => {
+                        if (!res.ok) throw new Error("Could not load messages from server");
+                        return res.json();
+                    })
+                    .then(data => renderAdminMessagesDOM(data))
+                    .catch(err => {
+                        console.error("Messages REST error, loading LocalStorage.", err);
+                        renderAdminMessagesDOM(getMessagesLocal());
+                    });
+            } else if (usingFirebase) {
                 db.collection("messages").orderBy("date", "desc").onSnapshot(snapshot => {
                     const messages = [];
                     snapshot.forEach(doc => {
@@ -417,9 +482,10 @@ function injectHeaderAndFooter() {
                     <a href="contact.html">Contact</a>
                 </div>
                 <div class="footer-social">
-                    <a href="#" aria-label="GitHub"><i class="fa-brands fa-github"></i></a>
-                    <a href="#" aria-label="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>
-                    <a href="#" aria-label="Instagram"><i class="fa-brands fa-instagram"></i></a>
+                    <a href="https://github.com/vis-a11y/" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><i class="fa-brands fa-github"></i></a>
+                    <a href="https://www.linkedin.com/in/vishalprajapati70/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><i class="fa-brands fa-linkedin"></i></a>
+                    <a href="https://www.instagram.com/ig_vishaal_16/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><i class="fa-brands fa-instagram"></i></a>
+                    <a href="https://wa.me/919876543210" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>
                     <a href="#" aria-label="Twitter"><i class="fa-brands fa-x-twitter"></i></a>
                 </div>
                 <div class="footer-copyright">
@@ -559,7 +625,24 @@ async function addService() {
         return;
     }
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/services", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ icon, title, description, details })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to write service");
+            }
+            showToast(`Added service "${title}" to Database.`, "success");
+            setupPageSynchronizations("services.html");
+        } catch (e) {
+            console.error("Service API write error", e);
+            showToast(e.message || "Failed to write to Database.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("services").add({
                 icon,
@@ -594,7 +677,23 @@ async function addService() {
 }
 
 async function deleteService(key) {
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch(`/api/services/${key}`, {
+                method: "DELETE",
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to delete");
+            }
+            showToast("Service deleted from Database.", "info");
+            setupPageSynchronizations("services.html");
+        } catch (e) {
+            console.error("Service deletion error", e);
+            showToast(e.message || "Failed to delete service.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("services").doc(key).delete();
             showToast("Service deleted from Cloud Database.", "info");
@@ -682,7 +781,24 @@ async function addSkill() {
         return;
     }
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/skills", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ name, percent })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to write skill");
+            }
+            showToast(`Successfully added skill "${name}" to Database.`, "success");
+            setupPageSynchronizations("skills.html");
+        } catch (e) {
+            console.error("Skill API write error", e);
+            showToast(e.message || "Failed to write to Database.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("skills").add({
                 name,
@@ -707,7 +823,23 @@ async function addSkill() {
 }
 
 async function deleteSkill(key) {
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch(`/api/skills/${key}`, {
+                method: "DELETE",
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to delete");
+            }
+            showToast("Skill deleted from Database.", "info");
+            setupPageSynchronizations("skills.html");
+        } catch (e) {
+            console.error("Skill deletion error", e);
+            showToast(e.message || "Failed to delete skill.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("skills").doc(key).delete();
             showToast("Skill deleted from Cloud Database.", "info");
@@ -813,7 +945,24 @@ async function addProject() {
         return;
     }
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/projects", {
+                method: "POST",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ title, image, video, github, demo, description })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to write project");
+            }
+            showToast(`Added project "${title}" to Database.`, "success");
+            setupPageSynchronizations("projects.html");
+        } catch (e) {
+            console.error("Project API write error", e);
+            showToast(e.message || "Failed to write to Database.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("projects").add({
                 title,
@@ -855,7 +1004,23 @@ async function addProject() {
 }
 
 async function deleteProject(key) {
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch(`/api/projects/${key}`, {
+                method: "DELETE",
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to delete");
+            }
+            showToast("Project deleted from Database.", "info");
+            setupPageSynchronizations("projects.html");
+        } catch (e) {
+            console.error("Project deletion error", e);
+            showToast(e.message || "Failed to delete project.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("projects").doc(key).delete();
             showToast("Project deleted from Cloud Database.", "info");
@@ -907,7 +1072,23 @@ async function sendMessage() {
     const sendBtn = document.getElementById("send-msg-btn");
     if (sendBtn) { sendBtn.disabled = true; sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...'; }
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/messages", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, email, subject, message })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to send message");
+            }
+            showToast("Your message was uploaded securely to the Cloud! I will respond shortly.", "success");
+        } catch (e) {
+            console.error("API message write error", e);
+            showToast(e.message || "Failed to send message online.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("messages").add({
                 name,
@@ -1008,7 +1189,23 @@ function renderAdminMessagesDOM(messages) {
 }
 
 async function deleteMessage(key) {
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch(`/api/messages/${key}`, {
+                method: "DELETE",
+                headers: getAuthHeaders()
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to delete");
+            }
+            showToast("Message deleted from Database.", "info");
+            setupPageSynchronizations("contact.html");
+        } catch (e) {
+            console.error("API message deletion error", e);
+            showToast(e.message || "Failed to delete message.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("messages").doc(key).delete();
             showToast("Message deleted from Cloud Database.", "info");
@@ -1039,7 +1236,17 @@ function getContactInfoLocal() {
 async function loadContactInfo() {
     let info = DEFAULT_CONTACT_INFO;
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/contact-info");
+            if (res.ok) {
+                info = await res.json();
+            }
+        } catch (e) {
+            console.warn("Could not load contact info from Server, using local.", e);
+            info = getContactInfoLocal();
+        }
+    } else if (usingFirebase) {
         try {
             const doc = await db.collection("settings").doc("contactInfo").get();
             if (doc.exists) {
@@ -1128,7 +1335,23 @@ async function saveContactInfo() {
 
     const info = { email, phone, location, availability };
 
-    if (usingFirebase) {
+    if (usingAPI) {
+        try {
+            const res = await fetch("/api/contact-info", {
+                method: "PUT",
+                headers: getAuthHeaders(),
+                body: JSON.stringify(info)
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || "Failed to update contact info");
+            }
+            showToast("Contact info updated in Database!", "success");
+        } catch (e) {
+            console.error("API contact info update error", e);
+            showToast(e.message || "Failed to save contact info.", "error");
+        }
+    } else if (usingFirebase) {
         try {
             await db.collection("settings").doc("contactInfo").set(info, { merge: true });
             showToast("Contact info updated in Cloud Database!", "success");

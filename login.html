@@ -59,24 +59,49 @@
     <script src="app.js"></script>
     <script>
         // Form Submission Logic
-        document.getElementById("loginform").addEventListener("submit", function(e) {
+        document.getElementById("loginform").addEventListener("submit", async function(e) {
             e.preventDefault();
             const role = this.role.value;
             const username = this.username.value.trim();
             const password = this.password.value.trim();
             
             if (role === "admin") {
-                if (username.toLowerCase() === "admin" && password === "admin") {
-                    localStorage.setItem("portfolio_isAdmin", "true");
-                    showToast("Login successful! Welcome back, Admin.", "success");
-                    setTimeout(() => {
-                        window.location.href = "index.html";
-                    }, 1200);
-                } else {
-                    showToast("Invalid admin credentials. (Hint: username 'admin', password 'admin')", "error");
+                try {
+                    const response = await fetch("/api/auth/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username, password })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        localStorage.setItem("portfolio_isAdmin", "true");
+                        localStorage.setItem("portfolio_token", data.token);
+                        showToast("Login successful! Welcome back, Admin.", "success");
+                        setTimeout(() => {
+                            window.location.href = "index.html";
+                        }, 1200);
+                        return;
+                    } else {
+                        const err = await response.json();
+                        showToast(err.error || "Invalid admin credentials.", "error");
+                        return;
+                    }
+                } catch (err) {
+                    console.log("REST API login offline, falling back to LocalStorage demo check.", err);
+                    if (username.toLowerCase() === "admin" && password === "admin") {
+                        localStorage.setItem("portfolio_isAdmin", "true");
+                        showToast("Login successful! Welcome back, Admin (Offline Mode).", "success");
+                        setTimeout(() => {
+                            window.location.href = "index.html";
+                        }, 1200);
+                    } else {
+                        showToast("Invalid admin credentials. (Hint: username 'admin', password 'admin')", "error");
+                    }
                 }
             } else {
                 localStorage.setItem("portfolio_isAdmin", "false");
+                localStorage.removeItem("portfolio_token");
                 showToast(`Signed in successfully as "${username}" (Viewer Mode).`, "success");
                 setTimeout(() => {
                     window.location.href = "index.html";
@@ -86,7 +111,7 @@
 
         function showDemoCredentials(e) {
             e.preventDefault();
-            showToast("Demo Admin Credentials: Username 'admin', Password 'admin'.", "info");
+            showToast("Demo Admin Credentials: Username 'admin', Password 'admin123' (Online) or 'admin' (Offline).", "info");
         }
     </script>
 </body>
